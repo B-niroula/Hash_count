@@ -1,0 +1,64 @@
+
+import "utils/casts/u64_to_field" as u64_to_field
+from "./poseidon/poseidon" import poseidon_hash_2 as hash
+
+const u32 MAX_SAMPLES_D_PREV = {{max_samples_D_prev}}
+const u32 MAX_SAMPLES_U_PREV = {{max_samples_U_prev}}
+const u32 MAX_SAMPLES_D_PLUS = {{max_samples_D_plus}}
+const u32 NO_FEATURES = {{no_features}}
+
+def hash_input(u64[NO_FEATURES] x, u64 y) -> field:
+    field h = hash(u64_to_field(y), u64_to_field(x[0]))
+    for u32 j in 1..NO_FEATURES do
+        h = hash(h, u64_to_field(x[j]))
+    endfor
+    return h
+
+def main(public field h_D_prev, public field h_D, public field h_U_prev, public field h_U, private u32 no_samples_D_prev, private u64[MAX_SAMPLES_D_PREV][NO_FEATURES] D_prev_X, private u64[MAX_SAMPLES_D_PREV] D_prev_Y, private u32 no_samples_U_prev, private field[MAX_SAMPLES_U_PREV] H_U_prev, private u32 no_samples_D_plus, private u64[MAX_SAMPLES_D_PLUS][NO_FEATURES] D_plus_X, private u64[MAX_SAMPLES_D_PLUS] D_plus_Y) -> field:
+
+    // (a) Hash individual samples from D_prev
+    field[MAX_SAMPLES_D_PREV] H_D_prev = [0; MAX_SAMPLES_D_PREV]
+    for u32 i in 0..MAX_SAMPLES_D_PREV do
+        H_D_prev[i] = if i < no_samples_D_prev then hash_input(D_prev_X[i], D_prev_Y[i]) else 0 fi
+    endfor
+    
+    // (b) Verify hash of D_prev dataset
+    field h_D_prev_prime = hash(0, 0)
+    for u32 i in 0..MAX_SAMPLES_D_PREV do
+        h_D_prev_prime = if i < no_samples_D_prev then hash(h_D_prev_prime, H_D_prev[i]) else h_D_prev_prime fi
+    endfor
+    assert(h_D_prev_prime == h_D_prev)
+
+    // (c) Verify hash of U_prev dataset
+    field h_U_prev_prime = hash(0, 0)
+    for u32 i in 0..MAX_SAMPLES_U_PREV do
+        h_U_prev_prime = if i < no_samples_U_prev then hash(h_U_prev_prime, H_U_prev[i]) else h_U_prev_prime fi
+    endfor
+    assert(h_U_prev_prime == h_U_prev)
+
+    // (d) Hash individual samples from D_plus
+    field[MAX_SAMPLES_D_PLUS] H_D_plus = [0; MAX_SAMPLES_D_PLUS]
+    for u32 i in 0..MAX_SAMPLES_D_PLUS do
+        H_D_plus[i] = if i < no_samples_D_plus then hash_input(D_plus_X[i], D_plus_Y[i]) else 0 fi        
+    endfor
+
+    // (f) Verify combined hash D = D_prev + D_plus
+    field h_D_prime = h_D_prev
+    for u32 i in 0..MAX_SAMPLES_D_PLUS do
+        h_D_prime = if i < no_samples_D_plus then hash(h_D_prime, H_D_plus[i]) else h_D_prime fi
+    endfor
+    assert(h_D_prime == h_D)
+
+    // (g) Verify U unchanged
+    assert(h_U_prev == h_U)
+
+    // (h) Verify no overlap between U_prev and D_plus
+    for u32 i in 0..MAX_SAMPLES_U_PREV do
+        for u32 j in 0..MAX_SAMPLES_D_PLUS do
+            field h_U_i = if i < no_samples_U_prev then H_U_prev[i] else 0 fi
+            field h_D_plus_j = if j < no_samples_D_plus then H_D_plus[j] else -1 fi
+            assert(h_U_i != h_D_plus_j)
+        endfor
+    endfor
+
+    return 1
